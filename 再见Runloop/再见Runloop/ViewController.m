@@ -96,7 +96,191 @@
 //和定时器类似，在创建的时候你可以指定runloop观察者可以只用一次或者循环使用。如只用一次，那么在它启动后会把自己从runloop中移除，而循环的观察者则不会将自己移除。定义观察者并把它添加到runloop，只能使用CoreFundation。
 
 
+//RunLoop 对外的接口
+//在CoreFoundation 里面关于RunLoop有5个类
+//CFRunLoopRef
+//CFRunLoopModeRef          //没有对外暴露
+//CFRunLoopSourceRef        //事件来源
+//CFRunLoopTimerRef          //定时源
+//CFRunLoopObserverRef       //状态监听
+
+//一个RunLoop包含若干个Mode，每个mode又包含若干个Source/Timer/Observer 每次调用RunLoop的主函数时，只能指定其中一个Mode，这个Mode被称作为CurrentMode。如果切换Mode，只能退出Loop，再重新指定一个Mode进入
+
+//CFRunLoopObserverRef 是观察者，每个Observer都包含一个回调指针，当RunLoop状态发生变化的时候就会回调
+//typedef CF_OPTIONS(CFOptionFlags, CFRunLoopActivity) {
+//    kCFRunLoopEntry         = (1UL << 0), // 即将进入Loop
+//    kCFRunLoopBeforeTimers  = (1UL << 1), // 即将处理 Timer
+//    kCFRunLoopBeforeSources = (1UL << 2), // 即将处理 Source
+//    kCFRunLoopBeforeWaiting = (1UL << 5), // 即将进入休眠
+//    kCFRunLoopAfterWaiting  = (1UL << 6), // 刚从休眠中唤醒
+//    kCFRunLoopExit          = (1UL << 7), // 即将退出Loop
+//};
+
+//Source/Timer/Observer 被统称为 modeItem，一个item可以被同时加入多个Mode，但是一个item被重复加入到同一个mode时是不会有效果的。如果一个mode中一个item都没有，则RunLoop会直接退出，不进入循环
+
+//RunLoop 的Mode 伪代码结构图
+//static __CFRunLoopMode{
+//    CFStringRef _name;      //Mode Name,eg:"kCFRunLoopDefaultMode"
+//    CFMutableSetRef _sources0;
+//    CFMutableSetRef _sources1;
+//    CFMutableArrayRef _observer;
+//    CFMutableArrayRef _times;
+//}
+//struct __CFRunLoop{
+//    CFMutableSetRef _commonModes;
+//    CFMutableSetRef _commonModeItems;
+//    CFRunLoopModeRef _currentMode;   //当前的RunLoop Mode
+//};
+
+//这里有一个概念叫“CommonModes”：一个Mode可以将自己标记为“Common”属性(通过ModeName添加到RunLoop的“commonModes“ 中)。每当runloop 的内容发生变化时，RunLoop都会将commonModeitems里的Source/Observer/Timer 同步到具有”Common“标记的所有Mode里
+
+//应用场景举例：主线程的RunLoop里面有两个预置的Mode：kCFRunLoopDefaultMode和UITrackingRunLoopMode。这两个Mode 都被标记为"Common"属性。DefaultMode是App平时所处的状态，TrackingRunLoopMode是追踪ScrollView滑动时的状态。当你创建一个Timer 并加到DefaultMode时，Timer 会得到重复回调，但此时滑动一个TableView时，RunLoop会将mode切换为TrackingRunLoopMode，这时Timer就不会被回调，并且也不会影响到滑动操作。
+//有时候你需要一个Timer，在两个Mode 中都能得到回调，一种方法就是将这个timer 分别加入这两个Mode，还有一种方法，就是将Timer加入到顶层的RunLoop的“commonModeitems”中。“commonModeItems”被RunLoop自动跟新到所有具有“Common”属性的Mode里去。
+
+//CFRunLoop 对外暴露的管理Mode接口只有👇2个
+//CFRunLoopAddCommonMode(CFRunLoopRef runloop,CFStringRef modeName);
+//CFRunLoopRunInMode(CFStringRef modeName,...)
+
+
+//Mode 暴露的管理mode item 的接口有下面几个
+//CFRunLoopAddSource(CFRunLoopRef rl,CFRunLoopSourceRef source,CFStringRef modeName);
+//CFRunLoopAddObserver(CFRunLoopRef rl,CFRunLoopObserverRef observer,CFStringRef modeName);
+//CFRunLoopAddTimer(CFRunLoopRef rl,CFRunLoopTimerRef timer,CFStringRef modeName);
+//CFRunLoopRemoveSource(CFRunLoopRef rl,CFRunLoopSourceRef source,CFStringRef modeName);
+//CFRunLoopRemoveObserver(CFRunLoopRef rl,CFRunLoopObserverRef observer,CFStringRef modeName);
+//CFRunLoopRemoveTimer(CFRunLoopRef rl,CFRunLoopTimerRef timer,CFStringRef modeName);
+
+//你只能通过modeName 来操作内部的mode， 当你传入一个新的modename但RunLoop内部没有对应的mode时，RunLoop会自动帮你创建对应的CFRunLoopModeRef。对于一个RunLoop来说，其内部的mode只能增加不能删除
+//苹果公开提供了Mode 有两个:kCFRunLoopDefaultMode(NSDEfaultRunLoopMode)和UITrackingRunLoopMode，你可以用这两个Mode Name来操作对应的Mode
+
+//苹果同时还提供了Common 标记的字符串：kCFRunLoopCommonModes(NSRunLoopCommonModes)，你可以永这个字符串来操作CommonItems，或者标记一个Mode为“Common”。使用时注意区分这个字符串和其他modeName
+
+//RunLoop的内部实现逻辑
+//大致如下 imageName:runloop1  Lin 169
+
+//RunLoop 的底层实现
+//RunLoop的核心是基于mach port 的，其进入休眠时调用的函数是mach_msg() macOS、iOS的系统架构
+
+
+
+
+
+
+
 @implementation ViewController
+
+
+/// 用DefaultMode启动
+/*
+void CFRunLoopRun(void) {
+    CFRunLoopRunSpecific(CFRunLoopGetCurrent(), kCFRunLoopDefaultMode, 1.0e10, false);
+}
+
+/// 用指定的Mode启动，允许设置RunLoop超时时间
+int CFRunLoopRunInMode(CFStringRef modeName, CFTimeInterval seconds, Boolean stopAfterHandle) {
+    return CFRunLoopRunSpecific(CFRunLoopGetCurrent(), modeName, seconds, returnAfterSourceHandled);
+}
+
+/// RunLoop的实现
+int CFRunLoopRunSpecific(runloop, modeName, seconds, stopAfterHandle) {
+    
+    /// 首先根据modeName找到对应mode
+    CFRunLoopModeRef currentMode = __CFRunLoopFindMode(runloop, modeName, false);
+    /// 如果mode里没有source/timer/observer, 直接返回。
+    if (__CFRunLoopModeIsEmpty(currentMode)) return;
+    
+    /// 1. 通知 Observers: RunLoop 即将进入 loop。
+    __CFRunLoopDoObservers(runloop, currentMode, kCFRunLoopEntry);
+    
+    /// 内部函数，进入loop
+    __CFRunLoopRun(runloop, currentMode, seconds, returnAfterSourceHandled) {
+        
+        Boolean sourceHandledThisLoop = NO;
+        int retVal = 0;
+        do {
+            
+            /// 2. 通知 Observers: RunLoop 即将触发 Timer 回调。
+            __CFRunLoopDoObservers(runloop, currentMode, kCFRunLoopBeforeTimers);
+            /// 3. 通知 Observers: RunLoop 即将触发 Source0 (非port) 回调。
+            __CFRunLoopDoObservers(runloop, currentMode, kCFRunLoopBeforeSources);
+            /// 执行被加入的block
+            __CFRunLoopDoBlocks(runloop, currentMode);
+            
+            /// 4. RunLoop 触发 Source0 (非port) 回调。
+            sourceHandledThisLoop = __CFRunLoopDoSources0(runloop, currentMode, stopAfterHandle);
+            /// 执行被加入的block
+            __CFRunLoopDoBlocks(runloop, currentMode);
+            
+            /// 5. 如果有 Source1 (基于port) 处于 ready 状态，直接处理这个 Source1 然后跳转去处理消息。
+            if (__Source0DidDispatchPortLastTime) {
+                Boolean hasMsg = __CFRunLoopServiceMachPort(dispatchPort, &msg)
+                if (hasMsg) goto handle_msg;
+            }
+            
+            /// 通知 Observers: RunLoop 的线程即将进入休眠(sleep)。
+            if (!sourceHandledThisLoop) {
+                __CFRunLoopDoObservers(runloop, currentMode, kCFRunLoopBeforeWaiting);
+            }
+            
+            /// 7. 调用 mach_msg 等待接受 mach_port 的消息。线程将进入休眠, 直到被下面某一个事件唤醒。
+            /// • 一个基于 port 的Source 的事件。
+            /// • 一个 Timer 到时间了
+            /// • RunLoop 自身的超时时间到了
+            /// • 被其他什么调用者手动唤醒
+            __CFRunLoopServiceMachPort(waitSet, &msg, sizeof(msg_buffer), &livePort) {
+                mach_msg(msg, MACH_RCV_MSG, port); // thread wait for receive msg
+            }
+            
+            /// 8. 通知 Observers: RunLoop 的线程刚刚被唤醒了。
+            __CFRunLoopDoObservers(runloop, currentMode, kCFRunLoopAfterWaiting);
+            
+            /// 收到消息，处理消息。
+        handle_msg:
+            
+            /// 9.1 如果一个 Timer 到时间了，触发这个Timer的回调。
+            if (msg_is_timer) {
+                __CFRunLoopDoTimers(runloop, currentMode, mach_absolute_time())
+            }
+            
+            /// 9.2 如果有dispatch到main_queue的block，执行block。
+            else if (msg_is_dispatch) {
+                __CFRUNLOOP_IS_SERVICING_THE_MAIN_DISPATCH_QUEUE__(msg);
+            }
+            
+            /// 9.3 如果一个 Source1 (基于port) 发出事件了，处理这个事件
+            else {
+                CFRunLoopSourceRef source1 = __CFRunLoopModeFindSourceForMachPort(runloop, currentMode, livePort);
+                sourceHandledThisLoop = __CFRunLoopDoSource1(runloop, currentMode, source1, msg);
+                if (sourceHandledThisLoop) {
+                    mach_msg(reply, MACH_SEND_MSG, reply);
+                }
+            }
+            
+            /// 执行加入到Loop的block
+            __CFRunLoopDoBlocks(runloop, currentMode);
+            
+            
+            if (sourceHandledThisLoop && stopAfterHandle) {
+                /// 进入loop时参数说处理完事件就返回。
+                retVal = kCFRunLoopRunHandledSource;
+            } else if (timeout) {
+                /// 超出传入参数标记的超时时间了
+                retVal = kCFRunLoopRunTimedOut;
+            } else if (__CFRunLoopIsStopped(runloop)) {
+                /// 被外部调用者强制停止了
+                retVal = kCFRunLoopRunStopped;
+            } else if (__CFRunLoopModeIsEmpty(runloop, currentMode)) {
+                /// source/timer/observer一个都没有了
+                retVal = kCFRunLoopRunFinished;
+            }
+            
+            /// 如果没超时，mode里没空，loop也没被停止，那继续loop。
+        } while (retVal == 0);
+    }
+    
+}
+可以看到，实际上 RunLoop 就是这样一个函数，其内部是一个 do-while 循环。当你调用 CFRunLoopRun() 时，线程就会一直停留在这个循环里；直到超时或被手动停止，该函数才会返回。
+*/
 
 
 
@@ -167,9 +351,7 @@ void createCustomSource(){
 }
 //run loop的观察者
 -(void)addObserverToCurrentRunloop{
-    typedef void (*CFRunLoopObserverCallBack)(CFRunLoopObserverRef observer, CFRunLoopActivity activity, void *info);
-    
-    
+
     NSRunLoop *myRunloop =[NSRunLoop currentRunLoop];
     CFRunLoopObserverContext context ={0,(__bridge void *)(self), NULL,NULL, NULL};
     //其中，kCFRunLoopBeforeTimers表示选择监听定时器触发前处理事件，后面的YES表示循环监听。
