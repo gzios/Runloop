@@ -373,7 +373,7 @@ void runLoopObserverCall(CFRunLoopObserverRef observer, CFRunLoopActivity activi
 - (void)viewDidLoad {
     [super viewDidLoad];
     // 得到当前线程
-    NSRunLoop *runloop =[NSRunLoop currentRunLoop];
+    NSRunLoop *runloop =[NSRunLoop currentRunLoop]; //没有会创建一个
     NSLog(@"runloop__%@",runloop);
     //通过getCFRunLoop获取对应的
     CFRunLoopRef runloopRef= runloop.getCFRunLoop;
