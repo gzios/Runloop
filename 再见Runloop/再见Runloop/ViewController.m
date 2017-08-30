@@ -289,7 +289,7 @@ void createPortSource(){
     //创建端口
     CFMessagePortRef prot =CFMessagePortCreateLocal(kCFAllocatorDefault, CFSTR("com.someport"),&onRecvMessageCallBack/*这里是个Block的回调*/, NULL, NULL);
     //添加到源
-    CFRunLoopSourceRef source = CFMessagePortCreateRunLoopSource(kCFAllocatorDefault, prot, 0);
+    CFRunLoopSourceRef source = CFMessagePortCreateRunLoopSource(NULL, prot, 0);
     
     //添加的runloop  参数线程，源，loopMode
     CFRunLoopAddSource(CFRunLoopGetCurrent(), source, kCFRunLoopDefaultMode);
@@ -383,7 +383,8 @@ void runLoopObserverCall(CFRunLoopObserverRef observer, CFRunLoopActivity activi
     BOOL isRun= [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate distantFuture]];
     NSLog(@"runloop__%d",isRun);
 
-    createPortSource();
+    
+//    createPortSource();
    
     
     //通过getCFRunLoop获取对应的
